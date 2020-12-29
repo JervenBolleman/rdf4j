@@ -545,7 +545,7 @@ public class StrictEvaluationStrategy implements EvaluationStrategy, FederatedSe
 		final Value predValue = getVarValue(predVar, bindings);
 		// if the predValue is not a IRI or null
 		// the result must be empty
-		if (predValue != null && !(predValue instanceof Resource)) {
+		if (predValue != null && !(predValue instanceof IRI)) {
 			return new EmptyIteration<>();
 		}
 
