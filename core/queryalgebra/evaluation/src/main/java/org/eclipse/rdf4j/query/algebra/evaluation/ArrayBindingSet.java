@@ -8,7 +8,6 @@
 package org.eclipse.rdf4j.query.algebra.evaluation;
 
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -48,21 +47,41 @@ public class ArrayBindingSet extends AbstractBindingSet {
 	}
 
 	public ArrayBindingSet(BindingSet toCopy, String... names) {
-		final HashSet<String> temp = new HashSet<String>(Arrays.asList(names));
-		temp.addAll(toCopy.getBindingNames());
-		this.bindingNames = temp.toArray(new String[0]);
-		this.values = new Value[bindingNames.length];
-		for (int i = 0; i < values.length; i++) {
-			this.values[i] = toCopy.getValue(bindingNames[i]);
+		if (toCopy instanceof ArrayBindingSet) {
+			// Because we don't check if the names are already part of the previous bindingset
+			// we do end up using more and more ram here. On the other hand we avoid the cost of the
+			// check
+			ArrayBindingSet abs = (ArrayBindingSet) toCopy;
+			this.bindingNames = Arrays.copyOf(abs.bindingNames, abs.bindingNames.length + names.length);
+			System.arraycopy(names, 0, bindingNames, abs.bindingNames.length, names.length);
+			this.values = Arrays.copyOf(abs.values, abs.bindingNames.length + names.length);
+		} else {
+			final int toCopySize = toCopy.size();
+			this.bindingNames = new String[toCopySize + names.length];
+			this.values = new Value[bindingNames.length];
+			final Iterator<String> iter = toCopy.getBindingNames().iterator();
+			for (int i = 0; iter.hasNext(); i++) {
+				this.bindingNames[i] = iter.next();
+			}
+			System.arraycopy(names, 0, bindingNames, toCopySize, names.length);
+
+			// We iterate to the end of the original bindingset
+			// to avoid having a value be not null if the
+			// binding name is not original.
+			for (int i = 0; i < toCopySize; i++) {
+				this.values[i] = toCopy.getValue(bindingNames[i]);
+			}
 		}
 	}
 
 	public ArrayBindingSet(ArrayBindingSet toCopy, String... names) {
-		this.bindingNames = Arrays.copyOf(toCopy.bindingNames, toCopy.bindingNames.length + names.length);
-		assert this.bindingNames.length == (int) Arrays.stream(this.bindingNames).distinct().count();
-		System.arraycopy(names, 0, bindingNames, bindingNames.length, names.length);
-		this.values = Arrays.copyOf(toCopy.values, toCopy.bindingNames.length + names.length);
-		;
+		// Because we don't check if the names are already part of the previous bindingset
+		// we do end up using more and more ram here. On the other hand we avoid the cost of the
+		// check
+		ArrayBindingSet abs = (ArrayBindingSet) toCopy;
+		this.bindingNames = Arrays.copyOf(abs.bindingNames, abs.bindingNames.length + names.length);
+		System.arraycopy(names, 0, bindingNames, abs.bindingNames.length, names.length);
+		this.values = Arrays.copyOf(abs.values, abs.bindingNames.length + names.length);
 	}
 
 	/**
