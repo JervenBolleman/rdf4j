@@ -770,7 +770,7 @@ public class StrictEvaluationStrategy implements EvaluationStrategy, FederatedSe
 			final BindingSet bindings, final Var subjVar, final Var predVar, final Var objVar, final Var conVar,
 			CloseableIteration<? extends Statement, QueryEvaluationException> stIter3) {
 		ConvertingIteration<Statement, BindingSet, QueryEvaluationException> resultingIterator;
-		final String[] names = Stream.of(conVar, objVar, predVar, subjVar)
+		final String[] names = Stream.of(subjVar, predVar, objVar, conVar)
 				.filter(Objects::nonNull)
 				.map(Var::getName)
 				.collect(Collectors.toList())
