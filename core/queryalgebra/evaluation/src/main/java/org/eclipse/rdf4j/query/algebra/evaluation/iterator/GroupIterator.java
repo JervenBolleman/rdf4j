@@ -18,6 +18,10 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.eclipse.rdf4j.common.iteration.CloseableIteration;
 import org.eclipse.rdf4j.common.iteration.CloseableIteratorIteration;
@@ -42,8 +46,8 @@ import org.eclipse.rdf4j.query.algebra.Min;
 import org.eclipse.rdf4j.query.algebra.Sample;
 import org.eclipse.rdf4j.query.algebra.Sum;
 import org.eclipse.rdf4j.query.algebra.ValueExpr;
+import org.eclipse.rdf4j.query.algebra.evaluation.ArrayBindingSet;
 import org.eclipse.rdf4j.query.algebra.evaluation.EvaluationStrategy;
-import org.eclipse.rdf4j.query.algebra.evaluation.QueryBindingSet;
 import org.eclipse.rdf4j.query.algebra.evaluation.ValueExprEvaluationException;
 import org.eclipse.rdf4j.query.algebra.evaluation.impl.ExtendedEvaluationStrategy;
 import org.eclipse.rdf4j.query.algebra.evaluation.util.MathUtil;
@@ -167,17 +171,26 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 	private Iterator<BindingSet> createIterator() throws QueryEvaluationException {
 		Collection<Entry> entries = buildEntries();
 		Set<BindingSet> bindingSets = createSet("bindingsets");
-
+		String[] groupBindingNames = Stream.concat(group.getGroupBindingNames().stream(),
+				group.getGroupElements().stream().map(GroupElem::getName)
+		).collect(Collectors.toList()).toArray(new String[0]);
+		ArrayBindingSet sol = new ArrayBindingSet(parentBindings, groupBindingNames);
+		// the lambdas created here amortize the cost of the linear search in the array for
+		// equal bindingNames.
+		BiConsumer<ArrayBindingSet, Value>[] directSetterForVariables = new BiConsumer[groupBindingNames.length];
+		for (int i = 0; i < groupBindingNames.length; i++) {
+			String groupBindingName = groupBindingNames[i];
+			directSetterForVariables[i] = sol.getDirectSetterForVariable(groupBindingName);
+		}
 		for (Entry entry : entries) {
-			QueryBindingSet sol = new QueryBindingSet(parentBindings);
-
-			for (String name : group.getGroupBindingNames()) {
-				BindingSet prototype = entry.getPrototype();
-				if (prototype != null) {
-					Value value = prototype.getValue(name);
+			BindingSet prototype = entry.getPrototype();
+			if (prototype != null) {
+				for (int i = 0; i < groupBindingNames.length; i++) {
+					String groupBindingName = groupBindingNames[i];
+					Value value = prototype.getValue(groupBindingName);
 					if (value != null) {
 						// Potentially overwrites bindings from super
-						sol.setBinding(name, value);
+						directSetterForVariables[i].accept(sol, value);
 					}
 				}
 			}
@@ -201,7 +214,7 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 				// no solutions, but if we are not explicitly grouping and aggregates are present,
 				// we still need to process them to produce a zero-result.
 				if (group.getGroupBindingNames().isEmpty()) {
-					final Entry entry = new Entry(null);
+					final Entry entry = new Entry(null, createAggregates(group));
 					if (!entry.getAggregates().isEmpty()) {
 						entry.addSolution(EmptyBindingSet.getInstance());
 						entries.put(new Key(EmptyBindingSet.getInstance()), entry);
@@ -220,7 +233,7 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 				Entry entry = entries.get(key);
 
 				if (entry == null) {
-					entry = new Entry(sol);
+					entry = new Entry(sol, createAggregates(group));
 					entries.put(key, entry);
 				}
 
@@ -286,34 +299,34 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 		}
 	}
 
-	private class Entry {
+	private static class Entry {
 
 		private final BindingSet prototype;
 
-		private volatile Map<String, Aggregate> aggregates;
+		private final Map<String, Aggregate> aggregates;
+		private final Consumer<BindingSet> processor;
 
-		public Entry(BindingSet prototype) throws ValueExprEvaluationException, QueryEvaluationException {
+		public Entry(BindingSet prototype, Map<String, Aggregate> aggregates)
+				throws ValueExprEvaluationException, QueryEvaluationException {
 			this.prototype = prototype;
-
+			this.aggregates = aggregates;
+			if (aggregates.isEmpty()) {
+				processor = (bs) -> {
+				};
+			} else {
+				Consumer<BindingSet> temp = null;
+				for (Aggregate agg : aggregates.values()) {
+					if (temp == null)
+						temp = bs -> agg.processAggregate(bs);
+					else
+						temp = temp.andThen(bs -> agg.processAggregate(bs));
+				}
+				processor = temp;
+			}
 		}
 
 		private Map<String, Aggregate> getAggregates() throws ValueExprEvaluationException, QueryEvaluationException {
-			Map<String, Aggregate> result = aggregates;
-			if (result == null) {
-				synchronized (this) {
-					result = aggregates;
-					if (result == null) {
-						result = aggregates = new LinkedHashMap<>();
-						for (GroupElem ge : group.getGroupElements()) {
-							Aggregate create = create(ge.getOperator());
-							if (create != null) {
-								aggregates.put(ge.getName(), create);
-							}
-						}
-					}
-				}
-			}
-			return result;
+			return aggregates;
 		}
 
 		public BindingSet getPrototype() {
@@ -321,12 +334,10 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 		}
 
 		public void addSolution(BindingSet bindingSet) throws QueryEvaluationException {
-			for (Aggregate aggregate : getAggregates().values()) {
-				aggregate.processAggregate(bindingSet);
-			}
+			processor.accept(bindingSet);
 		}
 
-		public void bindSolution(QueryBindingSet sol) throws QueryEvaluationException {
+		public void bindSolution(ArrayBindingSet sol) throws QueryEvaluationException {
 			for (String name : getAggregates().keySet()) {
 				try {
 					Value value = getAggregates().get(name).getValue();
@@ -340,26 +351,37 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 				}
 			}
 		}
+	}
 
-		private Aggregate create(AggregateOperator operator)
-				throws ValueExprEvaluationException, QueryEvaluationException {
-			if (operator instanceof Count) {
-				return new CountAggregate((Count) operator);
-			} else if (operator instanceof Min) {
-				return new MinAggregate((Min) operator);
-			} else if (operator instanceof Max) {
-				return new MaxAggregate((Max) operator);
-			} else if (operator instanceof Sum) {
-				return new SumAggregate((Sum) operator);
-			} else if (operator instanceof Avg) {
-				return new AvgAggregate((Avg) operator);
-			} else if (operator instanceof Sample) {
-				return new SampleAggregate((Sample) operator);
-			} else if (operator instanceof GroupConcat) {
-				return new ConcatAggregate((GroupConcat) operator);
+	private Map<String, Aggregate> createAggregates(Group group) {
+		Map<String, Aggregate> aggregates = new LinkedHashMap<>();
+		for (GroupElem ge : group.getGroupElements()) {
+			Aggregate create = create(ge.getOperator());
+			if (create != null) {
+				aggregates.put(ge.getName(), create);
 			}
-			return null;
 		}
+		return aggregates;
+	}
+
+	private Aggregate create(AggregateOperator operator)
+			throws ValueExprEvaluationException, QueryEvaluationException {
+		if (operator instanceof Count) {
+			return new CountAggregate((Count) operator);
+		} else if (operator instanceof Min) {
+			return new MinAggregate((Min) operator);
+		} else if (operator instanceof Max) {
+			return new MaxAggregate((Max) operator);
+		} else if (operator instanceof Sum) {
+			return new SumAggregate((Sum) operator);
+		} else if (operator instanceof Avg) {
+			return new AvgAggregate((Avg) operator);
+		} else if (operator instanceof Sample) {
+			return new SampleAggregate((Sample) operator);
+		} else if (operator instanceof GroupConcat) {
+			return new ConcatAggregate((GroupConcat) operator);
+		}
+		return null;
 	}
 
 	private abstract class Aggregate {
@@ -686,8 +708,10 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 		public void processAggregate(BindingSet s) throws QueryEvaluationException {
 			Value v = evaluate(s);
 			if (v != null && distinctValue(v)) {
+				if (concatenated.length() != 0) {
+					concatenated.append(separator);
+				}
 				concatenated.append(v.stringValue());
-				concatenated.append(separator);
 			}
 		}
 
@@ -695,11 +719,9 @@ public class GroupIterator extends CloseableIteratorIteration<BindingSet, QueryE
 		public Value getValue() {
 			if (concatenated.length() == 0) {
 				return vf.createLiteral("");
+			} else {
+				return vf.createLiteral(concatenated.toString());
 			}
-
-			// remove separator at the end.
-			int len = concatenated.length() - separator.length();
-			return vf.createLiteral(concatenated.substring(0, len));
 		}
 	}
 }

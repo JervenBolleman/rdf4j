@@ -83,6 +83,24 @@ public class ArrayBindingSet extends AbstractBindingSet {
 		return null;
 	}
 
+	public void setBinding(String bindingName, Value value) {
+		// We first try to test for pointer identity as that is super fast
+		// only if we can't find the bindingName because the string was not
+		// reused do we try to use the equals method.
+		for (int i = 0; i < this.bindingNames.length; i++) {
+			if (bindingNames[i] == bindingName) {
+				values[i] = value;
+				return;
+			}
+		}
+		for (int i = 0; i < this.bindingNames.length; i++) {
+			if (bindingNames[i].equals(bindingName)) {
+				values[i] = value;
+				return;
+			}
+		}
+	}
+
 	public String nameByIndex(int i) {
 		return bindingNames[i];
 	}
