@@ -116,6 +116,7 @@ import org.eclipse.rdf4j.query.algebra.ValueExpr;
 import org.eclipse.rdf4j.query.algebra.ValueExprTripleRef;
 import org.eclipse.rdf4j.query.algebra.Var;
 import org.eclipse.rdf4j.query.algebra.ZeroLengthPath;
+import org.eclipse.rdf4j.query.algebra.evaluation.ArrayBindingSet;
 import org.eclipse.rdf4j.query.algebra.evaluation.EvaluationStrategy;
 import org.eclipse.rdf4j.query.algebra.evaluation.QueryBindingSet;
 import org.eclipse.rdf4j.query.algebra.evaluation.QueryOptimizer;
@@ -624,7 +625,7 @@ public class StrictEvaluationStrategy implements EvaluationStrategy, FederatedSe
 
 				@Override
 				protected BindingSet convert(Statement st) {
-					QueryBindingSet result = new QueryBindingSet(bindings);
+					ArrayBindingSet result = new ArrayBindingSet(bindings);
 
 					if (subjVar != null && !subjVar.isConstant() && !result.hasBinding(subjVar.getName())) {
 						result.addBinding(subjVar.getName(), st.getSubject());
