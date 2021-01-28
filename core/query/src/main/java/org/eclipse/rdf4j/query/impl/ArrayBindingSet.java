@@ -7,6 +7,7 @@
  *******************************************************************************/
 package org.eclipse.rdf4j.query.impl;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -40,6 +41,32 @@ public class ArrayBindingSet extends AbstractBindingSet {
 	public ArrayBindingSet(String... names) {
 		this.bindingNames = names;
 		this.values = new Value[names.length];
+	}
+
+	public ArrayBindingSet(ArrayBindingSet bs, String... names) {
+		this.bindingNames = Arrays.copyOf(bs.bindingNames, bs.bindingNames.length + names.length);
+		this.values = Arrays.copyOf(bs.values, bs.values.length + names.length);
+		System.arraycopy(names, 0, this.bindingNames, bs.bindingNames.length, names.length);
+	}
+
+	public ArrayBindingSet(BindingSet bs, String... names) {
+		if (bs instanceof ArrayBindingSet) {
+			ArrayBindingSet abs = (ArrayBindingSet) bs;
+			this.bindingNames = Arrays.copyOf(abs.bindingNames, abs.bindingNames.length + names.length);
+			this.values = Arrays.copyOf(abs.values, abs.values.length + names.length);
+			System.arraycopy(names, 0, this.bindingNames, abs.bindingNames.length, names.length);
+		} else {
+			Set<String> bns = bs.getBindingNames();
+			this.bindingNames = new String[bns.size() + names.length];
+			this.values = new Value[bns.size() + names.length];
+			int i = 0;
+			for (String bn : bns) {
+				this.bindingNames[i] = bn;
+				this.values[i++] = bs.getValue(bn);
+			}
+			System.arraycopy(names, 0, this.bindingNames, bns.size(), names.length);
+		}
+
 	}
 
 	/**
