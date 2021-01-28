@@ -767,34 +767,35 @@ public class StrictEvaluationStrategy implements EvaluationStrategy, FederatedSe
 			final BindingSet bindings, final Var subjVar, final Var predVar, final Var objVar, final Var conVar,
 			CloseableIteration<? extends Statement, QueryEvaluationException> stIter3) {
 		ConvertingIteration<Statement, BindingSet, QueryEvaluationException> resultingIterator;
+		final String[] names = findVariableNamesInUse(subjVar, predVar, objVar, conVar);
+		// We use invoke dynamic to make a function that sets a variables value
+		// directly into the array without any further logic.
+		Supplier<ArrayBindingSet> sup;
 		if (bindings == null || bindings.size() == 0) {
-			// If there are no prior bindings we can use a smaller and optimized
-			// Array BindingSet.
-			// We use invoke dynamic to make a function that sets a variables value
-			// directly into the array without any further logic.
-			final String[] names = Stream.of(conVar, objVar, predVar, subjVar)
-					.filter(Objects::nonNull)
-					.map(Var::getName)
-					.collect(Collectors.toList())
-					.toArray(new String[0]);
-			Supplier<ArrayBindingSet> sup = () -> new ArrayBindingSet(names);
-
-			java.util.function.Function<Var, BiConsumer<ArrayBindingSet, Value>> addToBinding = (var) -> {
-				if (var == null) {
-					// if var is null we will throw this lambda away later
-					return null;
-				} else {
-					return sup.get().getDirectSetterForVariable(var.getName());
-				}
-			};
-			resultingIterator = new IntoBindingSetConverter<>(stIter3, bindings, conVar, objVar, predVar, subjVar,
-					sup, addToBinding);
+			sup = () -> new ArrayBindingSet(names);
 		} else {
-			java.util.function.Function<Var, BiConsumer<QueryBindingSet, Value>> addToBinding = makeAddToBindingFunction();
-			resultingIterator = new IntoBindingSetConverter<>(stIter3, bindings, conVar, objVar, predVar, subjVar,
-					() -> new QueryBindingSet(bindings), addToBinding);
+			sup = () -> new ArrayBindingSet(bindings, names);
 		}
+		java.util.function.Function<Var, BiConsumer<ArrayBindingSet, Value>> addToBinding = (var) -> {
+			if (var == null) {
+				// if var is null we will throw this lambda away later
+				return null;
+			} else {
+				return sup.get().getDirectSetterForVariable(var.getName());
+			}
+		};
+		resultingIterator = new IntoBindingSetConverter<>(stIter3, bindings, conVar, objVar, predVar, subjVar,
+				sup, addToBinding);
 		return resultingIterator;
+	}
+
+	private String[] findVariableNamesInUse(final Var subjVar, final Var predVar, final Var objVar, final Var conVar) {
+		final String[] names = Stream.of(conVar, objVar, predVar, subjVar)
+				.filter(Objects::nonNull)
+				.map(Var::getName)
+				.collect(Collectors.toList())
+				.toArray(new String[0]);
+		return names;
 	}
 
 	private java.util.function.Function<Var, BiConsumer<QueryBindingSet, Value>> makeAddToBindingFunction() {
