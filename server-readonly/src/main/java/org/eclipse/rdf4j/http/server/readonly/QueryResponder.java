@@ -43,6 +43,7 @@ public class QueryResponder {
 	/**
 	 * The repository that is being served.
 	 */
+	@Autowired
 	private final Repository repository;
 
 	@Autowired
