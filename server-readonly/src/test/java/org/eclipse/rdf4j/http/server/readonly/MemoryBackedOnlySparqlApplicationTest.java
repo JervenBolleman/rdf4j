@@ -32,5 +32,12 @@ public class MemoryBackedOnlySparqlApplicationTest {
 				String.class, "ASK { ?s ?p ?o }")).contains("true");
 
 	}
+	
+	@Test
+	public void testSelectQuery() {
+		String forObject = this.restTemplate.getForObject("http://localhost:" + port + "/sparql/?query={query}",
+				String.class, "SELECT * WHERE { ?s ?p ?o }");
+		assertThat(forObject).contains("http://www.w3.org/1999/02/22-rdf-syntax-ns#Bag");
+	}
 
 }
