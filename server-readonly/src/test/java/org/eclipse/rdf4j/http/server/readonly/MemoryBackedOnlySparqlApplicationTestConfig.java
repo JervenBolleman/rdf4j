@@ -1,5 +1,6 @@
 package org.eclipse.rdf4j.http.server.readonly;
 
+import org.eclipse.rdf4j.model.vocabulary.RDF;
 import org.eclipse.rdf4j.repository.Repository;
 import org.eclipse.rdf4j.repository.sail.SailRepository;
 import org.eclipse.rdf4j.sail.memory.MemoryStore;
@@ -11,6 +12,10 @@ public class MemoryBackedOnlySparqlApplicationTestConfig {
 
 	@Bean
 	public Repository getTestRepository() {
-		return new SailRepository(new MemoryStore());
+		SailRepository sailRepository = new SailRepository(new MemoryStore());
+		sailRepository.init();
+		sailRepository.getConnection()
+				.add(sailRepository.getValueFactory().createStatement(RDF.ALT, RDF.BAG, RDF.FIRST));
+		return sailRepository;
 	}
 }
