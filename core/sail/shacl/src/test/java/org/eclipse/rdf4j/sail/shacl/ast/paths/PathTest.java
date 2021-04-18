@@ -162,7 +162,7 @@ public class PathTest {
 			actual = connection.getStatements(null, SHACL.PATH, null).stream().map(s -> {
 				Path path = Path.buildPath(connection, (Resource) s.getObject());
 				DynamicModel model = new DynamicModelFactory().createEmptyModel();
-				path.toModel((Resource) s.getObject(), null, model, new HashSet<>(), new HashSet<>());
+				path.toModel((Resource) s.getObject(), null, model, new HashSet<>());
 
 				model.add(s.getSubject(), SHACL.PATH, s.getObject());
 
@@ -171,9 +171,10 @@ public class PathTest {
 				m1.addAll(m2);
 				return m1;
 			}).orElse(new DynamicModelFactory().createEmptyModel());
+		} finally {
+			sailRepository.shutDown();
 		}
 
-		sailRepository.shutDown();
 		return actual;
 	}
 }

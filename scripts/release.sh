@@ -69,12 +69,14 @@ fi
 # check Java version
 if  !  mvn -v | grep -q "Java version: 1.8."; then
   echo "";
-  echo "You need to use Java 8!";
-  echo "mvn -v";
-  echo "";
-  exit 1;
+  echo "Java 1.8 expected but not detected";
+  read -rp "Continue (y/n)?" choice
+  case "${choice}" in
+      y|Y ) echo "";;
+      n|N ) exit;;
+      * ) echo "unknown response, exiting"; exit;;
+  esac
 fi
-
 
 # check that we are on main
 if  ! git status --porcelain --branch | grep -q "## main...origin/main"; then
@@ -235,11 +237,12 @@ git checkout main
 RELEASE_NOTES_BRANCH="${MVN_VERSION_RELEASE}-release-notes"
 git checkout -b "${RELEASE_NOTES_BRANCH}"
 
-tar -cvzf "site/static/javadoc/${MVN_VERSION_RELEASE}.tgz" target/site/apidocs
+tar -cvzf "site/static/javadoc/${MVN_VERSION_RELEASE}.tgz" -C target/site/apidocs .
+cp -f "site/static/javadoc/${MVN_VERSION_RELEASE}.tgz" "site/static/javadoc/latest.tgz"
 git add --all
 git commit -s -a -m "javadocs for ${MVN_VERSION_RELEASE}"
 git push --set-upstream origin "${RELEASE_NOTES_BRANCH}"
-gh pr create -B develop --title "${RELEASE_NOTES_BRANCH}" --body "Javadocs, release-notes and news item for ${MVN_VERSION_RELEASE}"
+gh pr create -B main --title "${RELEASE_NOTES_BRANCH}" --body "Javadocs, release-notes and news item for ${MVN_VERSION_RELEASE}"
 
 echo "Javadocs are in git branch ${RELEASE_NOTES_BRANCH}"
 
@@ -262,4 +265,4 @@ echo "     - Make sure that all issues in the milestone are closed, or move them
 
 echo ""
 echo "To generate the news item and release-notes you will want to run the following command:"
-echo "./release-notes.sh ${MVN_VERSION_RELEASE} patch-release-notes.md milestone-news-item.md ${RELEASE_NOTES_BRANCH}"
+echo "./release-notes.sh ${MVN_VERSION_RELEASE} patch-release-notes.md patch-news-item.md ${RELEASE_NOTES_BRANCH}"

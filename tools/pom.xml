@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>org.eclipse.rdf4j</groupId>
 		<artifactId>rdf4j</artifactId>
-		<version>3.6.1-SNAPSHOT</version>
+		<version>3.6.3-SNAPSHOT</version>
 	</parent>
 	<artifactId>rdf4j-tools</artifactId>
 	<packaging>pom</packaging>
@@ -20,6 +20,33 @@
 		<module>runtime</module>
 		<module>runtime-osgi</module>
 	</modules>
+	<profiles>
+		<profile>
+			<id>skipSlowTests</id>
+			<activation>
+				<!-- active on all Java 8 and higher builds by default -->
+				<jdk>[1.8,)</jdk>
+			</activation>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<excludedGroups>slow</excludedGroups>
+						</configuration>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-failsafe-plugin</artifactId>
+						<configuration>
+							<excludedGroups>slow</excludedGroups>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 	<dependencyManagement>
 		<dependencies>
 			<!-- Java Enterprise Edition -->
@@ -147,8 +174,28 @@
 	<dependencies>
 		<!-- shared test dependencies -->
 		<dependency>
-			<groupId>junit</groupId>
-			<artifactId>junit</artifactId>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.mockito</groupId>
+			<artifactId>mockito-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.junit.jupiter</groupId>
+			<artifactId>junit-jupiter-engine</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.junit.vintage</groupId>
+			<artifactId>junit-vintage-engine</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.junit.jupiter</groupId>
+			<artifactId>junit-jupiter-params</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -159,11 +206,6 @@
 		<dependency>
 			<groupId>org.mockito</groupId>
 			<artifactId>mockito-core</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-classic</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

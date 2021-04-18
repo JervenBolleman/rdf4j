@@ -18,7 +18,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.eclipse.rdf4j.model.BNode;
 import org.eclipse.rdf4j.model.Literal;
 import org.eclipse.rdf4j.model.Model;
 import org.eclipse.rdf4j.model.Resource;
@@ -26,7 +25,6 @@ import org.eclipse.rdf4j.model.Statement;
 import org.eclipse.rdf4j.model.Value;
 import org.eclipse.rdf4j.model.impl.DynamicModel;
 import org.eclipse.rdf4j.model.impl.DynamicModelFactory;
-import org.eclipse.rdf4j.model.impl.LinkedHashModel;
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory;
 import org.eclipse.rdf4j.model.vocabulary.RDF;
 import org.eclipse.rdf4j.model.vocabulary.SHACL;
@@ -87,7 +85,7 @@ public class W3cComplianceTest {
 			assertEquals(s + " has more than one rdf:rest", size, 1);
 		});
 
-		System.out.println(AbstractShaclTest.modelToString(statements));
+//		System.out.println(AbstractShaclTest.modelToString(statements));
 
 		assert !statements.isEmpty();
 
@@ -99,7 +97,7 @@ public class W3cComplianceTest {
 		HashSet<Resource> dedupe = new HashSet<>();
 		DynamicModel model = new DynamicModelFactory().createEmptyModel();
 
-		shapes.forEach(shape -> shape.toModel(model, dedupe));
+		shapes.forEach(shape -> shape.toModel(model));
 
 		return model;
 	}
@@ -122,8 +120,6 @@ public class W3cComplianceTest {
 			}
 
 		}
-
-		System.out.println(Arrays.toString(testFiles.toArray()));
 
 		return testFiles;
 
@@ -206,6 +202,8 @@ public class W3cComplianceTest {
 				actualConforms = true;
 			}
 
+		} finally {
+			sailRepository.shutDown();
 		}
 
 		assertEquals(expected.conforms, actualConforms);

@@ -57,8 +57,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 
 	private static final Logger logger = LoggerFactory.getLogger(ShaclSailConnection.class);
 
-	private List<Shape> shapes;
-
 	private final SailConnection previousStateConnection;
 	private final SailConnection serializableConnection;
 	private final SailConnection previousStateSerializableConnection;
@@ -84,6 +82,7 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 
 	// write lock
 	private Lock writeLock;
+	private Lock readLock;
 
 	// used to determine if we are currently registered as a connection listener (getting added/removed notifications)
 	private boolean connectionListenerActive = false;
@@ -107,7 +106,8 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	}
 
 	private Settings getDefaultSettings(ShaclSail sail) {
-		return new Settings(sail.isCacheSelectNodes(), sail.isValidationEnabled(), sail.isParallelValidation());
+		return new Settings(sail.isCacheSelectNodes(), sail.isValidationEnabled(), sail.isParallelValidation(),
+				currentIsolationLevel);
 	}
 
 	@Override
@@ -231,15 +231,16 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 		super.commit();
 		shapesRepoConnection.commit();
 
-		if (shapesModifiedInCurrentTransaction) {
-			sail.setShapes(shapes);
-		}
-
 		if (writeLock != null && writeLock.isActive()) {
 			writeLock = sail.releaseExclusiveWriteLock(writeLock);
 		}
 
+		if (readLock != null && readLock.isActive()) {
+			readLock = sail.releaseReadLock(readLock);
+		}
+
 		assert writeLock == null;
+		assert readLock == null;
 
 		if (sail.isPerformanceLogging()) {
 			logger.info("commit() excluding validation and cleanup took {} ms", System.currentTimeMillis() - before);
@@ -251,7 +252,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	public void addStatement(UpdateContext modify, Resource subj, IRI pred, Value obj, Resource... contexts)
 			throws SailException {
 		if (contexts.length == 1 && RDF4J.SHACL_SHAPE_GRAPH.equals(contexts[0])) {
-			writeLock = sail.acquireExclusiveWriteLock(writeLock);
 			shapesRepoConnection.add(subj, pred, obj);
 			isShapeRefreshNeeded = true;
 		} else {
@@ -263,7 +263,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	public void removeStatement(UpdateContext modify, Resource subj, IRI pred, Value obj, Resource... contexts)
 			throws SailException {
 		if (contexts.length == 1 && RDF4J.SHACL_SHAPE_GRAPH.equals(contexts[0])) {
-			writeLock = sail.acquireExclusiveWriteLock(writeLock);
 			shapesRepoConnection.remove(subj, pred, obj);
 			isShapeRefreshNeeded = true;
 		} else {
@@ -274,7 +273,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	@Override
 	public void addStatement(Resource subj, IRI pred, Value obj, Resource... contexts) throws SailException {
 		if (contexts.length == 1 && RDF4J.SHACL_SHAPE_GRAPH.equals(contexts[0])) {
-			writeLock = sail.acquireExclusiveWriteLock(writeLock);
 			shapesRepoConnection.add(subj, pred, obj);
 			isShapeRefreshNeeded = true;
 		} else {
@@ -285,7 +283,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	@Override
 	public void removeStatements(Resource subj, IRI pred, Value obj, Resource... contexts) throws SailException {
 		if (contexts.length == 1 && RDF4J.SHACL_SHAPE_GRAPH.equals(contexts[0])) {
-			writeLock = sail.acquireExclusiveWriteLock(writeLock);
 			shapesRepoConnection.remove(subj, pred, obj);
 			isShapeRefreshNeeded = true;
 		} else {
@@ -305,21 +302,39 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	@Override
 	public void rollback() throws SailException {
 
-		previousStateConnection.rollback();
-		shapesRepoConnection.rollback();
-		super.rollback();
-		if (shapesModifiedInCurrentTransaction || isShapeRefreshNeeded) {
-			isShapeRefreshNeeded = true; // force refresh shapes after rollback of the shapesRepoConnection
-			refreshShapes();
-			if (shapesModifiedInCurrentTransaction) {
-				sail.setShapes(shapes);
+		try {
+			if (previousStateConnection.isActive()) {
+				previousStateConnection.rollback();
+			}
+		} finally {
+			try {
+				if (shapesRepoConnection.isActive()) {
+					shapesRepoConnection.rollback();
+				}
+
+			} finally {
+				try {
+					if (isActive()) {
+						super.rollback();
+					}
+
+				} finally {
+					if ((writeLock != null && writeLock.isActive())) {
+						writeLock = sail.releaseExclusiveWriteLock(writeLock);
+					}
+
+					if ((readLock != null && readLock.isActive())) {
+						readLock = sail.releaseReadLock(readLock);
+					}
+
+					assert writeLock == null;
+					assert readLock == null;
+
+					cleanup();
+				}
 			}
 		}
-		if ((writeLock != null && writeLock.isActive())) {
-			writeLock = sail.releaseExclusiveWriteLock(writeLock);
-		}
-		assert writeLock == null;
-		cleanup();
+
 	}
 
 	private void cleanup() {
@@ -350,18 +365,11 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 		shapesModifiedInCurrentTransaction = false;
 
 		assert writeLock == null;
+		assert readLock == null;
+
 		currentIsolationLevel = null;
 		if (sail.isPerformanceLogging()) {
 			logger.info("cleanup() took {} ms", System.currentTimeMillis() - before);
-		}
-
-	}
-
-	private void refreshShapes() {
-		if (isShapeRefreshNeeded) {
-			shapes = sail.refreshShapes(shapesRepoConnection);
-			isShapeRefreshNeeded = false;
-			shapesModifiedInCurrentTransaction = true;
 		}
 
 	}
@@ -648,6 +656,7 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 									sail.closeConnection(this);
 								} finally {
 									assert writeLock == null;
+									assert readLock == null;
 
 								}
 							}
@@ -661,8 +670,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 	@Override
 	public void prepare() throws SailException {
 		flush();
-
-		Lock readLock = null;
 
 		try {
 			long before = 0;
@@ -680,17 +687,28 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 					writeLock = sail.acquireExclusiveWriteLock(writeLock);
 				}
 			} else {
-				if (!(writeLock != null && writeLock.isActive())) {
-					readLock = sail.acquireReadLock();
+				// only allow one transaction to modify the shapes at a time
+				if (isShapeRefreshNeeded) {
+					if (!(writeLock != null && writeLock.isActive())) {
+						writeLock = sail.acquireExclusiveWriteLock(writeLock);
+					}
+				} else {
+					if (!(readLock != null && readLock.isActive())) {
+						readLock = sail.acquireReadLock();
+					}
 				}
 			}
 
-			loadCachedNodeShapes();
-			List<Shape> shapesBeforeRefresh = this.shapes;
+			List<Shape> shapesBeforeRefresh = sail.getCurrentShapes();
+			List<Shape> shapesAfterRefresh;
 
-			refreshShapes();
-
-			List<Shape> shapesAfterRefresh = this.shapes;
+			if (isShapeRefreshNeeded) {
+				isShapeRefreshNeeded = false;
+				shapesModifiedInCurrentTransaction = true;
+				shapesAfterRefresh = sail.getShapes(shapesRepoConnection);
+			} else {
+				shapesAfterRefresh = shapesBeforeRefresh;
+			}
 
 			stats.setEmpty(isEmpty());
 
@@ -754,15 +772,12 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 
 		} finally {
 
-			if (readLock != null) {
-				readLock = sail.releaseReadLock(readLock);
-			}
-			assert readLock == null;
-
 			preparedHasRun = true;
 
+			shapesRepoConnection.prepare();
 			previousStateConnection.prepare();
 			super.prepare();
+
 		}
 
 	}
@@ -815,10 +830,6 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 			rdfsSubClassOfReasoner = null;
 
 		}
-	}
-
-	private void loadCachedNodeShapes() {
-		this.shapes = sail.getShapes();
 	}
 
 	@Override
@@ -883,9 +894,8 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 			throw new IllegalStateException("No active transaction!");
 		}
 
-		loadCachedNodeShapes();
 		prepareValidation();
-		ValidationReport validate = validate(this.shapes, true);
+		ValidationReport validate = validate(sail.getCurrentShapes(), true);
 
 		return new ShaclSailValidationException(validate).getValidationReport();
 	}
@@ -899,11 +909,13 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 		private ShaclSail.TransactionSettings.ValidationApproach validationApproach;
 		private Boolean cacheSelectedNodes;
 		private Boolean parallelValidation;
+		private IsolationLevel isolationLevel;
 
 		public Settings() {
 		}
 
-		public Settings(boolean cacheSelectNodes, boolean validationEnabled, boolean parallelValidation) {
+		public Settings(boolean cacheSelectNodes, boolean validationEnabled, boolean parallelValidation,
+				IsolationLevel isolationLevel) {
 			this.cacheSelectedNodes = cacheSelectNodes;
 			if (!validationEnabled) {
 				validationApproach = ShaclSail.TransactionSettings.ValidationApproach.Disabled;
@@ -911,6 +923,7 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 				this.validationApproach = ShaclSail.TransactionSettings.ValidationApproach.Auto;
 			}
 			this.parallelValidation = parallelValidation;
+			this.isolationLevel = isolationLevel;
 		}
 
 		public ShaclSail.TransactionSettings.ValidationApproach getValidationApproach() {
@@ -923,6 +936,10 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 
 		public boolean isParallelValidation() {
 			return parallelValidation;
+		}
+
+		public IsolationLevel getIsolationLevel() {
+			return isolationLevel;
 		}
 
 		void applyTransactionSettings(Settings transactionSettingsLocal) {
@@ -944,6 +961,16 @@ public class ShaclSailConnection extends NotifyingSailConnectionWrapper implemen
 
 			if (transactionSettingsLocal.validationApproach != null) {
 				validationApproach = transactionSettingsLocal.validationApproach;
+			}
+
+			assert transactionSettingsLocal.isolationLevel == null;
+
+			if (isolationLevel == IsolationLevels.SERIALIZABLE) {
+				if (parallelValidation) {
+					logger.warn("Parallel validation is not compatible with SERIALIZABLE isolation level!");
+				}
+
+				parallelValidation = false;
 			}
 
 		}

@@ -28,19 +28,9 @@ public class ParsingTest {
 
 		DynamicModel emptyModel = new DynamicModelFactory().createEmptyModel();
 
-		shapes.forEach(s -> s.toModel(null, null, emptyModel, new HashSet<>(), new HashSet<>()));
+		shapes.forEach(s -> s.toModel(null, null, emptyModel, new HashSet<>()));
 
-		emptyModel.setNamespace(SHACL.NS);
-		emptyModel.setNamespace(RDF.NS);
-
-		WriterConfig writerConfig = new WriterConfig();
-		writerConfig.set(BasicWriterSettings.INLINE_BLANK_NODES, true);
-		writerConfig.set(BasicWriterSettings.PRETTY_PRINT, true);
-
-		Rio.write(emptyModel, System.out, RDFFormat.TURTLE, writerConfig);
-
-		System.out.println();
-
+		shaclSail.shutDown();
 	}
 
 	@Test
@@ -60,5 +50,6 @@ public class ParsingTest {
 			}
 		});
 
+		shaclSail.shutDown();
 	}
 }

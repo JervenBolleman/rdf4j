@@ -31,6 +31,10 @@ public class ShaclTest extends AbstractShaclTest {
 
 	@Test
 	public void testSingleTransaction() {
+		// we don't need to run this test for every isolation level
+		if (isolationLevel != IsolationLevels.NONE) {
+			return;
+		}
 		runWithAutomaticLogging(() -> runTestCaseSingleTransaction(testCasePath, path, expectedResult, isolationLevel));
 	}
 
